@@ -1,0 +1,240 @@
+#!/bin/bash
+
+
+function usage(){
+    echo "Usage: run_mode {c/nc} selected_eps {2/3/4} run_file CDIR {scp img to this dir} [eps_same]"
+}
+
+
+function make_fs(){
+local ofile
+ofile=$1
+fs=$(awk 'BEGIN{}{if ($0~/ /)print $1"="$3;}' $ofile)
+fs=$(echo $fs | sed 's/p_s_corr/pc/g')
+fs=$(echo $fs | tr " " "\n" | sort | tr "\n" "_" | sed 's/_$//g')
+echo $fs
+}
+
+
+
+function in_array(){
+    local array
+	local element
+	array=("${!1}")
+	element=$2
+	if test -z "`echo ${array[@]}`"
+	then
+	    echo "-1"
+	else
+		local t
+		local i
+		t=-1
+		for((i=0;i<${#array[@]};i++))
+		do
+		    if test -z "`awk 'BEGIN{if ('${array[$i]}'!='$element') print \"o\";}'`"
+			then
+				t=$i
+			fi
+		done
+		if test $t -eq -1
+		then
+		    echo "-1"
+		else
+			echo $t
+		fi
+    fi
+}
+
+
+
+if test $# -lt 4
+then
+    usage
+    exit 1
+fi
+
+
+run_mode=$1
+CDIR="~/public_html/hyd/rel/"$4
+pf="p__"
+OPTDIR=$PWD"/opt/"
+POPTDIR=$OPTDIR"psi/"
+run_file=${OPTDIR}$3
+eps_same=$5
+selected_psi=$2
+
+
+
+if [[ $selected_psi -ne 2 && $selected_psi -ne 3 && $selected_psi -ne 4 ]]
+then
+    usage
+    exit 1
+fi
+
+
+
+run=(`cat $run_file | sed 's/\n/\ /g'`)
+
+EPS_FILE=$PWD"/data/eps_avg_psi"
+
+if test "$run_mode" = "c"
+then
+    make
+    rm *.o
+fi
+
+declare -A MAX_PSI
+declare -A DPSI
+
+#1=40
+#2=26
+#3=20
+
+N1=20
+N2=13
+N3=10
+
+MAX_PSI[2]=`awk 'BEGIN{pi=atan2(0,-1); printf("%.9g", pi);}'`
+MAX_PSI[3]=`awk 'BEGIN{pi=atan2(0,-1); printf("%.9g", 2*pi/3);}'`
+MAX_PSI[4]=`awk 'BEGIN{pi=atan2(0,-1); printf("%.9g", pi/2);}'`
+DPSI[2]=`awk 'BEGIN{printf("%.9g", '${MAX_PSI[2]}'/'$N1')}'`
+DPSI[3]=`awk 'BEGIN{printf("%.9g", '${MAX_PSI[3]}'/'$N2')}'`
+DPSI[4]=`awk 'BEGIN{printf("%.9g", '${MAX_PSI[4]}'/'$N3')}'`
+
+#DPSI[2]=0.08
+#DPSI[3]=0.08
+#DPSI[4]=0.08
+
+for index in 2 3 4
+do
+   MAX_PSI[$index]=`awk 'BEGIN{print('${MAX_PSI[$index]}'+'${DPSI[$index]}');}'`
+done
+
+MAX_PSI[$selected_psi]=1
+DPSI[$selected_psi]=1
+
+param=()
+
+
+if test "$run_mode" = c
+then
+    i=0
+    for((ri=0;ri<${#run[@]};ri++))
+    do
+        fs2=`make_fs ${OPTDIR}${run[$ri]}`
+        psi4=0
+        while test -z "`awk 'BEGIN{if ('$psi4'>='${MAX_PSI[4]}'){print("b");}}'`"
+        do
+            psi4f=`awk 'BEGIN{printf("%.2g", '$psi4');}'`
+            psi3=0
+            while test -z "`awk 'BEGIN{if ('$psi3'>='${MAX_PSI[3]}'){print("b");}}'`"
+            do
+                psi3f=`awk 'BEGIN{printf("%.2g", '$psi3');}'`
+                psi2=0
+                while test -z "`awk 'BEGIN{if ('$psi2'>='${MAX_PSI[2]}'){print("b");}}'`"
+                do
+                        psi2f=`awk 'BEGIN{printf("%.2g", '$psi2');}'`
+                        printf "psi2 = ${psi2}\npsi3 = ${psi3}\npsi4 = ${psi4}\n`cat ${OPTDIR}${run[$ri]}`" > "${POPTDIR}o_${psi2f}_${psi3f}_${psi4f}_${fs2}"
+                        if test $i -lt 4
+                        then
+                            of="${POPTDIR}o_${psi2f}_${psi3f}_${psi4f}_${fs2}"
+                            fs=`make_fs ${of}`
+                            param[$i]=${of}"__"$fs
+                            i=`awk 'BEGIN{print ('$i'+1);}'`
+                        else
+                            printf "#!/bin/bash\n./exe `echo ${param[@]}`"> "run_rhyd"
+                            chmod +x run_rhyd
+                            sbatch -p hpc2009 -N 1 -B 2:4:1 run_rhyd
+                            #sbatch -p hpc2005 -N 1 run_rhyd
+                            of="${POPTDIR}o_${psi2f}_${psi3f}_${psi4f}_${fs2}"
+                            fs=`make_fs ${of}`
+                            param[0]=${of}"__"$fs
+                            i=1
+                        fi
+                    
+                psi2=`awk 'BEGIN{print ('$psi2'+'${DPSI[2]}');}'`
+                done    
+            
+            psi3=`awk 'BEGIN{print ('$psi3'+'${DPSI[3]}');}'`
+            done
+   
+        psi4=`awk 'BEGIN{print ('$psi4'+'${DPSI[4]}');}'`
+        done
+
+    done
+
+else
+    if test -z $eps_same
+    then
+        usage   
+        exit 1
+    fi
+    g++ -std=c++11 eps_avg.cpp
+    
+    j=0
+    for((ri=0;ri<${#run[@]};ri++))
+    do
+        fs2=`make_fs ${OPTDIR}${run[$ri]}`
+        psi4=0
+        while test -z "`awk 'BEGIN{if ('$psi4'>='${MAX_PSI[4]}'){print("b");}}'`"
+        do
+            psi4f=`awk 'BEGIN{printf("%.2g", '$psi4');}'`
+            psi3=0
+            while test -z "`awk 'BEGIN{if ('$psi3'>='${MAX_PSI[3]}'){print("b");}}'`"
+            do   
+                psi3f=`awk 'BEGIN{printf("%.2g", '$psi3');}'`
+                psi2=0
+                while test -z "`awk 'BEGIN{if ('$psi2'>='${MAX_PSI[2]}'){print("b");}}'`"
+                do   
+                    psi2f=`awk 'BEGIN{printf("%.2g", '$psi2');}'`
+                    of="${POPTDIR}o_${psi2f}_${psi3f}_${psi4f}_${fs2}"
+                    fend_array[$j]=`make_fs ${of}`
+                    j=`awk 'BEGIN{print ('$j'+1);}'`
+                
+                psi2=`awk 'BEGIN{print ('$psi2'+'${DPSI[2]}');}'`
+                done
+            
+            psi3=`awk 'BEGIN{print ('$psi3'+'${DPSI[3]}');}'`
+            done
+        
+        psi4=`awk 'BEGIN{print ('$psi4'+'${DPSI[4]}');}'`
+        done
+        
+        ./a.out ${fend_array[@]} ${selected_psi}
+        j=0
+    done
+    rm a.out
+    
+    o[0]="";
+    c[0]="";
+    k=0;
+    for i in ${run[@]}
+    do
+		tmp=`cat ${OPTDIR}$i | grep $eps_same | awk '{print $3}'`
+		in="`in_array "c[@]" "$tmp"`"
+		if test $in -eq -1
+		then
+				o[$k]=$i
+				c[$k]=$tmp
+				k=`expr $k + 1`
+		else
+				o[$in]+=";;"${OPTDIR}$i
+		fi
+    done
+    for i in ${o[@]}
+    do
+		me=`cat "$(echo ${OPTDIR}$i | tr ";;" " " | awk '{print $1}')" | grep $eps_same | awk '{print $3}'`
+		es=`echo $eps_same | sed 's/p_s_corr/pc/g'`
+		./make_plot eps `echo ${OPTDIR}$i | tr ";;" " "` "`echo ${es}\=${me}`" $selected_psi "run2"
+		cd data		
+		mv n_eps.png eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_n.png
+		mv v_eps.png eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_v.png
+		mv p_eps.png eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_p.png
+		scp eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_n.png eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_v.png eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_p.png caesar:$CDIR
+		cp eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_n.png ../eps/eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_n.png
+		cp eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_p.png ../eps/eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_p.png
+		cp eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_v.png ../eps/eps_avgPsi_Psi${selected_psi}\=0_${es}\=${me}_v.png
+		cd ..
+    done
+        
+fi

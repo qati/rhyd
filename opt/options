@@ -1,0 +1,110 @@
+/**
+ * KAPPA
+ */
+kappa = 2
+
+/**
+ * Spacetime resolution.
+ */
+dt = 0.05   //used only by first step
+dx = 0.2
+dy = 0.2
+
+
+/**
+ * Start time.
+ */
+t0 = 30
+
+
+/**
+ * Borders.
+ */
+x1 = -22 // fm
+x2 =  22
+y1 = -22
+y2 =  22
+
+
+/**
+ * CALCULATION TIME.
+ */
+RTT = 10    // fm/c
+
+
+/**
+ * Number of points to be written to file.
+ */
+NOPTBW = 500  // fm/c
+
+/**
+ * Writing step: console and dt file.
+ */
+WS = 4
+
+/**
+ * Initial values.
+ */
+X0 = 5       // fm
+Y0 = 7       // fm
+V0 = 0.12      // c
+W0 = 0.13      // c
+n0 = 6       // 1/fm^2
+p0 = 500     // MeV/fm^2      In symmmetric case p0=rho0*X0^2/2
+
+/**
+ * Presure correction.
+ */
+p_s_corr = 1
+
+/**
+ * Integral radius.
+ */
+int_rad = 0.4
+
+/**
+ * Asymmetric initial value.
+ */
+R   = 4
+E2  = 0.3
+E3  = 0.15
+E4  = 0.1
+
+psi2 = 0
+psi3 = 0
+psi4 = 0
+
+/**
+ * Measurable quantities calculation settings.
+ */
+LAST_V_ID = 4
+pt1 = 0
+pt2 = 2000
+fi1 = 0
+fi2 = 6.28318530718
+dpt = 10
+dfi = 0.1
+
+/**
+ * Particle mass.
+ */
+m = 139.570 //MeV Pi+-
+
+/**
+ * Hadronization temperature.
+ */
+T0 = 170 //MeV
+
+
+/**
+ * Options for data process script!
+ * @maximum of v
+ * @number of countur lines in v animation
+ * @maximum length of vectors
+ */
+max_v             = 1
+max_v_vec         = 1
+num_of_cont_lines = 8
+eps_v_t1          = 29
+eps_min           = -0.6
+eps_max           =  0.6

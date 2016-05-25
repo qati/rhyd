@@ -1,0 +1,15 @@
+#!/bin/bash
+
+rm slurm-*
+
+cd data
+
+rm nfi__*
+rm dt__*
+rm numofstep__*
+rm vn__*
+rm npt__*
+rm eps__*
+rm dat__*
+
+cd ..

@@ -1,0 +1,285 @@
+#!/bin/bash
+
+
+function usage(){
+		echo "Usage: run_file run_mode {c/nc} eps_same {pc/kappa/n0/p0} plot_mode {eps/vnN/ve/slice/plot2d/error/error2d/ei/eis/eisp/all} CDIR {scp to ~/public_html/tdk/rhyd_2D/CDIR} [prefix=ag]"
+}
+
+
+if test $# -lt 5
+then
+		usage
+		exit 1
+fi
+
+run_file=$1
+run_mode=$2
+eps_same=$3
+plot_mode=$4
+CDIR="~/public_html/hyd/rel/"$5
+prefix=""
+if test -z $6
+then
+		prefix="rh_ag__";
+else
+		prefix=$6"__";
+fi
+
+OPTDIR=$PWD"/opt/"
+RUNFILE=$OPTDIR$run_file
+
+
+function make_fs(){
+local ofile
+ofile=$1
+fs=$(awk 'BEGIN{}{if ($0~/ /)print $1"="$3;}' $ofile)
+fs=$(echo $fs | sed 's/p_s_corr/pc/g')
+fs=$(echo $fs | tr " " "\n" | sort | tr "\n" "_" | sed 's/_$//g')
+echo $fs
+}
+
+run=(`cat $RUNFILE| sed 's/\n/\ /g'`)
+file_specs=()
+param=()
+for((i=0;i<${#run[@]};i++))
+do
+		run[$i]=${OPTDIR}${run[$i]}
+		fs=`make_fs ${run[$i]}`
+		file_specs[$i]=$fs
+		param[$i]=${run[$i]}"__"$fs
+done
+
+
+if test "$run_mode" = "c" 
+then
+make
+rm *.o
+./exe ${param[@]}
+rm exe
+fi
+
+
+
+if [ "$eps_same" = "pc" ]
+then
+		eps_same="p_s_corr"
+fi
+
+
+function in_array(){
+		local array
+		local element
+		array=("${!1}")
+		element=$2
+		if test -z "`echo ${array[@]}`"
+		then
+				echo "-1"
+		else
+				local t
+				local i
+				t=-1
+				for((i=0;i<${#array[@]};i++))
+				do
+						if test -z "`awk 'BEGIN{if ('${array[$i]}'!='$element') print \"o\";}'`"
+						then
+								t=$i
+						fi
+				done
+				if test $t -eq -1
+				then
+						echo "-1"
+				else
+						echo $t
+				fi
+		fi
+}
+
+
+function plot_eps(){
+o[0]="";
+c[0]="";
+k=0;
+for i in ${run[@]}
+do
+		tmp=`cat $i | grep $eps_same | awk '{print $3}'`
+		in="`in_array "c[@]" "$tmp"`"
+		if test $in -eq -1
+		then
+				o[$k]=$i
+				c[$k]=$tmp
+				k=`expr $k + 1`
+		else
+				o[$in]+=";;"$i
+		fi
+done
+for i in ${o[@]}
+do
+		me=`cat "$(echo $i | tr ";;" " " | awk '{print $1}')" | grep $eps_same | awk '{print $3}'`
+		es=`echo $eps_same | sed 's/p_s_corr/pc/g'`
+		./make_plot eps `echo $i | tr ";;" " "` "`echo ${es}\=${me}`"
+		cd data		
+		mv n_eps.png ${prefix}eps_${es}\=${me}_n.png
+		mv v_eps.png ${prefix}eps_${es}\=${me}_v.png
+		mv p_eps.png ${prefix}eps_${es}\=${me}_p.png
+		scp ${prefix}eps_${es}\=${me}_n.png ${prefix}eps_${es}\=${me}_v.png ${prefix}eps_${es}\=${me}_p.png caesar:$CDIR
+		cd ..
+done
+
+
+}
+
+
+function plot_vnN(){
+o[0]="";
+c[0]="";
+k=0;
+for i in ${run[@]}
+do
+		tmp=`cat $i | grep $eps_same | awk '{print $3}'`
+		in="`in_array "c[@]" "$tmp"`"
+		if test $in -eq -1
+		then
+				o[$k]=$i
+				c[$k]=$tmp
+				k=`expr $k + 1`
+		else
+				o[$in]+=";;"$i
+		fi
+done
+
+for i in ${o[@]}
+do
+		me=`cat "$(echo $i | tr ";;" " " | awk '{print $1}')" | grep $eps_same | awk '{print $3}'`
+		es=`echo $eps_same | sed 's/p_s_corr/pc/g'`
+		./make_plot vnN `echo $i | tr ";;" " "`  "`echo ${es}\=${me}`"
+		cd data
+        	mv vn.png ${prefix}vn_${es}\=${me}.png
+		mv Nfi.png ${prefix}Nfi_${es}\=${me}.png
+		mv Npt.png ${prefix}Npt_${es}\=${me}.png
+		scp ${prefix}vn_${es}\=${me}.png ${prefix}Nfi_${es}\=${me}.png ${prefix}Npt_${es}\=${me}.png caesar:$CDIR
+		cd ..
+done
+
+}
+
+
+
+
+function plot_pint(){
+for i in ${run[@]}
+do
+		./make_plot pint $i
+		fs=`make_fs $i`
+		cd data
+		mv q1.png ${prefix}q1_${fs}.png
+		mv q2q3.png ${prefix}q2q3_${fs}.png
+		mv q4.png ${prefix}q4_${fs}.png
+		mv lost_q1.png ${prefix}lost_q1_${fs}.png
+		mv lost_q2q3.png ${prefix}lost_q2q3_${fs}.png
+		mv lost_q4.png ${prefix}lost_q4_${fs}.png
+		scp ${prefix}q1_${fs}.png ${prefix}q2q3_${fs}.png ${prefix}q4_${fs}.png ${prefix}lost_q1_${fs}.png ${prefix}lost_q2q3_${fs}.png ${prefix}lost_q4_${fs}.png caesar:$CDIR
+		cd ..
+done
+
+}
+
+
+function plot_T(){
+for i in ${run[@]}
+do
+	./make_plot plotT $i
+	fs=`make_fs $i`
+	cd data
+	mv T.png ${prefix}T_${fs}.png
+	scp ${prefix}T_${fs}.png caesar:$CDIR
+	cd ..
+done
+}
+
+
+function plot_slice(){
+
+for i in ${run[@]}
+do
+		./make_plot slice $i
+		fs=`make_fs $i`
+		cd data
+		mv slice.gif ${prefix}slice_${fs}.gif
+       	 	mv T_slice.gif ${prefix}T_slice_${fs}.gif
+		scp ${prefix}slice_${fs}.gif ${prefix}T_slice_${fs}.gif caesar:$CDIR
+		cd ..
+done
+
+}
+
+
+function plot_2d(){
+
+for i in ${run[@]}
+do
+		./make_plot plot2d $i
+		fs=`make_fs $i`
+		cd data
+		mv n.gif ${prefix}sol_${fs}_n.gif
+		mv v.gif ${prefix}sol_${fs}_v.gif
+		mv p.gif ${prefix}sol_${fs}_p.gif
+		scp ${prefix}sol_${fs}_n.gif ${prefix}sol_${fs}_v.gif ${prefix}sol_${fs}_p.gif caesar:$CDIR
+		cd ..
+done
+}
+
+
+function plot_error(){
+
+for i in ${run[@]}
+do
+		./make_plot error $i
+		fs=`make_fs $i`
+		cd data
+		mv aerror.png ${prefix}aerror_${fs}.png
+		mv rerror.png ${prefix}rerror_${fs}.png
+		scp ${prefix}aerror_${fs}.png ${prefix}rerror_${fs}.png caesar:$CDIR
+		cd ..
+done
+}
+
+
+function plot_error2d(){
+
+for i in ${run[@]}
+do
+		./make_plot error2d $i
+		cd data
+		mv dn.gif ${prefix}error_${fs}_n.gif
+		mv dp.gif ${prefix}error_${fs}_p.gif
+		scp ${prefix}error_${fs}_n.gif ${prefix}error_${fs}_p.gif caesar:$CDIR
+		cd ..
+done
+}
+
+
+
+
+case $plot_mode in 
+		"eps")     plot_eps     ;;
+    		"vnN")   plot_vnN  ;;
+		"ve")      plot_vnN
+			   plot_eps     ;;
+		"plotT")    plot_T       ;;
+		"pint")	   plot_pint    ;;
+		"slice")   plot_slice   ;;
+		"plot2d")  plot_2d      ;;
+		"error")   plot_error   ;;
+		"error2d") plot_error2d ;;
+		"ei")      plot_eps
+			   plot_pint    ;;
+		"eis")     plot_eps
+			   plot_pint
+			   plot_slice   ;;
+		"eisp")		 plot_eps
+						   plot_slice
+					plot_pint
+						   plot_2d      ;;
+		*) usage ;;
+esac
+

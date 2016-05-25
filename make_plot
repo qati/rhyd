@@ -1,0 +1,776 @@
+#!/bin/bash
+
+function usage(){
+		echo "Usage: ./make_plot plot_mode {plot_mode=eps/vnN/plotT/pint/slice/plot2d/error2d/error} [option file extensions] [SAME IN PLOT]"
+}
+
+
+if test -z "$1" || test -z "$2"
+then
+		usage
+		exit 1
+fi
+
+DEFDIR=$PWD
+OPTDIR=$PWD"/opt/"
+DATDIR=$PWD"/data/"
+
+plot_mode=$1
+
+def_opt_file=$OPTDIR"options"
+opt_file=$2
+
+
+file_spec=$(awk 'BEGIN{}{if ($0~/ /)print $1"="$3;}' $opt_file)
+file_spec=$(echo $file_spec | tr " " "\n" | sort | tr "\n" "_" | sed 's/p_s_corr/pc/g' | sed 's/_$//g')
+
+dat_file=$DATDIR"dat__"$file_spec
+eps_file=$DATDIR"eps__"$file_spec
+err_file=$DATDIR"error__"$file_spec
+pint_file=$DATDIR"pint__"$file_spec
+vn_file=$DATDIR"vn__"$file_spec
+Npt_file=$DATDIR"npt__"$file_spec
+Nfi_file=$DATDIR"nfi__"$file_spec
+num_of_step_file=$DATDIR"numofstep__"$file_spec
+time_file=$eps_file
+eps_file_start="eps__"
+vn_file_start="vn__"
+Nfi_file_start="nfi__"
+Npt_file_start="npt__"
+
+rr=($@)
+last=$(echo ${rr[${#rr[@]}-1]})
+selected_psi=$(echo ${rr[${#rr[@]}-2]})
+
+if test "${last}" = "run2"
+then
+    eps_file=$DATDIR"eps_avgPsi_Psi${selected_psi}__"$file_spec
+    eps_file_start="eps_avgPsi_Psi${selected_psi}__"
+    echo $@
+
+    if test -z "`head -1 $eps_file`"
+    then
+        echo "EPS file not found: "$eps_file
+        exit 1
+    fi
+else 
+    if test -z "`head -1 $eps_file`" || test -z "`head -1 $num_of_step_file`"
+    then
+		    echo "Wrong options! One of files doesn't exist!"
+		    echo "DAT file: "$dat_file
+		    echo "EPS file: "$eps_file
+		    echo "NUM OF STEP file: "$num_of_step_file
+		    exit 1
+    fi
+fi
+
+echo "Running make_plot module with: "$@
+
+
+var=("x1" "x2" "y1" "y2" "kappa" "n0" "p0" "max_v" "num_of_cont_lines" "max_v_vec" "eps_v_t1" "pt1" "pt2" "fi1" "fi2")
+
+for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+do
+		tmp=`grep ${var[$i]}\\  $opt_file | awk '{print $1, $3'} | cut -d\\  -f2`
+		if test -z $tmp
+		then
+
+				tmp=`grep ${var[$i]}\\  $def_opt_file | awk '{print $1, $3}' | cut -d\\  -f2`
+
+		fi
+		eval ${var[$i]}=$tmp
+done
+
+if test "$last" != "run2"
+then
+N=`tail -1 $num_of_step_file`
+N=$(awk 'BEGIN{print int('$N'-1+.5)}')
+fi
+
+
+
+opts=($@)
+unset opts[0]
+echo ${opts[@]}
+if test "$last" = "run2"
+then
+    unset opts[${#opts[@]}]
+    unset opts[${#opts[@]}]
+fi
+same=${opts[${#opts[@]}]}
+if [ "$plot_mode" = "eps" ] || [ "$plot_mode" = "vnN" ]
+then
+	unset opts[${#opts[@]}]
+fi
+
+
+function max(){
+arr=("${!1}")
+m=${arr[0]}
+for i in "${arr[@]}"
+do
+		if [ $(awk 'BEGIN{print "'$m'"<"'$i'";}') -eq 1 ]
+		then
+				m=$i
+		fi
+done
+echo $m;		
+}
+
+
+
+
+function error(){
+if test -z "`head -1 $err_file`"
+then
+		echo "No error file! This plot module can be used only with symsol/asymsol/nassol module!";
+		exit 1
+fi
+for i in 2 3 4 5; do
+		ae[$i]=`awk 'BEGIN{m=0}{if (m<$'$i')m=$'$i'}END{print m}' $err_file`
+done
+aem=`max ae[@]`
+for i in 2 3 4 5; do
+		ae[$i]=$(awk 'BEGIN{print int(('$aem'/'${ae[i]}')+.5)}')
+done
+
+cd $DATDIR
+
+gnuplot <<EOF
+set term eps enhanced
+
+set out "rerror.eps"
+
+set xlabel "Time [fm{\\267}c@^{-1}   ]"
+set ylabel "Relat\ive difference [%]"
+
+plot "$err_file" u 1:(\$6*100) t "n" w l lt 1 lw 2, "$err_file" u 1:(\$7*100) t "vx" w l lt 3 lw 2, \
+	"$err_file" u 1:(\$8*100) t "vy" w l lt 4 lw 2, "$err_file" u 1:(\$9*100) t "p" w l lt 2 lw 2
+
+set out "aerror.eps"
+
+set ylabel "Absolute difference"
+
+plot "$err_file" u 1:(\$2*${ae[2]}) t "n*${ae[2]} [MeV fm@^{-3}'  ]" w l lt 1 lw 2, \
+     "$err_file" u 1:(\$3*${ae[3]}) t "vx*${ae[3]} [c]" w l lt 3 lw 2, \
+     "$err_file" u 1:(\$4*${ae[4]}) t "vy*${ae[4]} [c]" w l lt 4 lw 2, \
+     "$err_file" u 1:(\$5*${ae[5]}) t "p*${ae[5]} [MeV fm@^{-3}   ]" w l lt 2 lw 2
+
+EOF
+convert aerror.eps aerror.png
+convert rerror.eps rerror.png
+
+cd $DEFDIR
+}
+
+
+
+
+function slice(){
+mod=`head -n 1 $dat_file | cut -d\  -f7`
+
+cd $DATDIR
+
+awk < $dat_file '\
+BEGIN{bf=$1}{\
+if (length("'$mod'")!=0 && $2==3){ print $1,$3,$4,$5,$6,$7,$8,$9,$10;}\
+if (length("'$mod'")==0 && $2==3){ print $1,$3,$4,$5,$6;}\
+if (((!$10 && $10!=0 && length("'$mod'")!=0) || (!$6 && $6!=0 && length("'$mod'")==0)) && bf==$1){ print "\n";}\
+bf=$1;}\
+END{}' > dat_y0
+
+gt=0;
+Tmax=`awk 'BEGIN{print ('$p0'/'$n0');}'`
+if test -z $(awk 'BEGIN{if ('$p0'>'$n0'){print "";}else{print "gt";}}')
+then
+gt=$p0;
+else
+gt=$n0;
+fi
+mp=$(awk 'BEGIN{print int('$gt'/'$p0'+.5)}')
+mr=$(awk 'BEGIN{print int(('$gt'/'$n0')+.5)}')
+mvx=$(awk 'BEGIN{m=0;}{if ($3>m)m=$3;}END{print m}' dat_y0)
+mvx=$(awk 'BEGIN{s=0.25*'$gt'/(('$mvx'==0) ? 1 : '$mvx'); if (s<0.5){print s;} else{print int(s+.5);}}')
+
+
+cm=$(awk 'BEGIN{s=0.3*'$gt'; if (s<0.5){print s;} else{print int(s+.5);}}')
+plot="plot 'dat_y0' index i u 1:(\$2*$mr) w l lt 1 lw 1 t 'n*$mr [fm@^{-3}   ]', \
+'dat_y0' index i u 1:(\$3*$mvx) w l lt 2 lw 1 t 'vx*$mvx [c]', \
+'dat_y0' index i u 1:4 w l lt 5 lw 1 t 'vy [c]', \
+'dat_y0' index i u 1:(\$5*$mp) w l lt 3 lw 1 t 'p*$mp [MeV fm@^{-3}   ]'";
+
+if test ! -z $mod
+then
+		plot+=", 'dat_y0' index i u 1:(\$6*$mr) w l lt 1 lw 2 t 'an*$mr [MeV fm@^{-3}   ]', \
+				     'dat_y0' index i u 1:(\$7*$mvx) w l lt 2 lw 2 t 'avx*$mvx [c]', \
+						 'dat_y0' index i u 1:(\$9*$mp) w l lt 4 lw 2 t 'ap*$mp [MeV fm@^{-3}   ]'";
+fi
+
+#awk '{if ($2!=""){print $1, $5/$2;}else{print "";}}' < dat_y0 > t_y0
+
+gnuplot <<EOF
+set term gif animate enhanced size 800,600
+set out 'slice.gif'
+set iso 100
+
+set xrange [$x1:$x2]
+set yrange [-$cm:$gt]
+do for [i=0:$N]{
+		time=system(sprintf("sed -n '%i p' $time_file | cut -d\\\\  -f1", (i+1))) + 0
+		set title sprintf("Time: %f", time)
+		$plot
+}
+EOF
+#set term gif animate enhanced size 800,600
+#set out 'T_slice.gif'
+#set yrange [0:$Tmax]
+#do for [i=0:$N]{
+#	time=system(sprintf("sed -n '%i p' $time_file | cut -d\\\\  -f1", (i+1))) + 0
+#    plot 't_y0' index i u 1:2 w l lt 1 lw 2 t 'T [MeV]'
+#}
+#EOF
+
+cd $DEFDIR
+}
+
+
+
+
+function plot2D(){
+ni=$(awk 'BEGIN{print '$max_v'/'$num_of_cont_lines'}')
+vc=$(awk 'BEGIN{print '$max_v'/'$max_v_vec''})
+
+cd $DATDIR
+
+gnuplot <<EOF
+	set term gif animate enhanced size 800,600
+	set out "p.gif"
+
+	set lmargin at screen 0.1
+	set rmargin at screen 0.9
+
+	unset key
+	unset surface
+	set view map
+	set pm3d
+	set size ratio 1
+
+	set xrange [$x1:$x2]
+	set yrange [$y1:$y2]
+	set cbrange [0:$p0]
+	set xlabel "{/Times-Bold x [fm]}"
+	set ylabel "{/Times-Bold y [fm]}"
+	set cblabel "{/Times-Bold MeV{\\267}fm@^{-3}}"
+
+
+	do for [i=0:$N]{
+		 time=system(sprintf("sed -n '%i p' $time_file | cut -d\\\\  -f1", (i+1))) + 0
+			set title sprintf("Time: \%f", time);
+			splot '$dat_file' index i u 1:2:6
+	}
+
+	set term gif animate enhanced size 800, 600
+	set out "n.gif"
+	set cbrange[0:$n0]
+	set cblabel "MeV{\\267}c@^{-2}   fm@^{-3}"
+	
+	do for [i=0:$N]{
+		  time=system(sprintf("sed -n '%i p' $time_file | cut -d\\\\  -f1", (i+1))) + 0
+
+  		set title sprintf("Time: \%f", time);
+			splot '$dat_file' index i u 1:2:3
+	}
+
+EOF
+cat > mvpl <<EOF
+#!/bin/bash
+
+awk -v mod=\$1 -v p=\$2 'function abs(x){return x<0 ? -x : x;}BEGIN{nr=0;i=1;PI=3.14159;}
+{
+	if (\$0~/# Contour/) nr=0;
+	if (mod==0 && nr==p){
+		labelname[i]=\$3;
+		labelposx[i]=\$1;
+		labelposy[i]=\$2;
+	}
+	if (mod==0 && nr==(p-1)){ x=\$1; y=\$2;}
+	if (mod==0 && nr==(p+1)){
+		labelrot[i]=180*atan2(y-\$2, x-\$1)/PI;
+		i++;
+	}
+	if (mod==1 && abs(nr-p)>p) print \$0
+	nr++;
+	
+}
+END{
+	if (mod==0){
+		for(j=1;j<i;j++){
+			printf "set label %d \"%g\" at %g, %g center front rotate by %g\n", j, labelname[j], labelposx[j], labelposy[j], labelrot[j]	
+		}
+	}
+}' \$3
+EOF
+chmod +x mvpl
+
+gnuplot <<EOF
+set term gif animate enhanced size 800,600
+set out "v.gif"
+
+set size ratio 1
+set key outside
+
+set xrange [$x1:$x2]
+set yrange [$y1:$y2]
+set cbrange [0:$max_v]
+set xlabel "{/Times-Bold x [fm]}"
+set ylabel "{/Times-Bold y [fm]}"
+set cblabel "{/Times-Bold c}"
+
+
+set rmargin 5
+
+
+do for [i=0:$N]{
+		time=system(sprintf("sed -n '%i p' $time_file | cut -d\\\\  -f1", (i+1))) + 0
+		set title sprintf("Time: %f", time)
+		
+		set surface
+		set table 'bgc'
+		splot '$dat_file' index i u 1:2:(sqrt(\$4**2+\$5**2))
+		unset surface
+
+		set table 'cont'
+		set contour base
+		set cntrparam level incremental 0, $ni, $max_v
+		splot '$dat_file' index i u 1:2:(sqrt(\$4**2+\$5**2))
+		unset contour
+
+		unset table
+		
+		unset label
+		l '<./mvpl 0 4 cont'
+
+		set palette rgbformulae 33,13,10
+		plot 'bgc' with image t '', '<./mvpl 1 4 cont' w l lt -1 lw 1.5 t '', '$dat_file' index i every 12:12 u 1:2:(\$4/$vc):(\$5/$vc) with vectors lt 10 lw 2 t '{/Times-Bold v/$vc [c]}'
+}
+EOF
+
+rm cont
+rm bgc
+rm mvpl
+
+
+cd $DEFDIR
+}
+
+
+
+
+function nadiff(){
+cd $DATDIR
+
+ms=$(awk 'function abs(x){return ((x<0.0) ? -x : x);}BEGIN{m1=0;m2=0;}{if (abs($7-$3)>m1){m1=abs($7-$3)}\
+if (abs($10-$6)>m2){m2=abs($10-$6)}}END{print m1,m2}' $dat_file)
+mr=$(echo $ms |cut -d\  -f1)
+mp=$(echo $ms |cut -d\  -f2)
+gnuplot <<EOF
+	set term gif animate enhanced size 800,600
+	set out "dp.gif"
+
+	set samp 100
+	set iso 100
+	unset key
+	unset sur
+	set view map
+	set pm3d at b
+	set size ratio 1	
+
+	set xrange [$x1:$x2]
+	set yrange [$y1:$y2]
+	set cbrange [0:$mp]
+	set xlabel "x [fm]"
+	set ylabel "y [fm]"
+	set cblabel "MeV{\\267}fm@^{-3}"
+
+	do for [i=0:$N]{
+		  time=system(sprintf("sed -n '%i p' $time_file | cut -d\\\\  -f1", (i+1))) + 0
+			set title sprintf("Time: \%f", time);
+			splot '$dat_file' index i u 1:2:(abs(\$10-\$6))
+	}
+
+	set term gif animate enhanced
+	set out "dn.gif"
+	set cbrange[0:$mr]
+	set cblabel "MeV{\\267}c@^{-2}   fm@^{-3}"
+	
+	do for [i=0:$N]{
+		  time=system(sprintf("sed -n '%i p' $time_file | cut -d\\\\  -f1", (i+1))) + 0
+			set title sprintf("Time: \%f", time);
+			splot '$dat_file' index i u 1:2:(abs(\$7-\$3))
+	}
+EOF
+
+cd $DEFDIR
+}
+
+
+
+function eps(){
+cd $DATDIR
+
+t1=`sed -n '2 p' $eps_file | cut -d\  -f1`
+t2=`tail -1 $eps_file | cut -d\  -f1`;
+
+file_specs=();
+for((i=1;i<=${#opts[@]};i++))
+do
+		fs=$(awk 'BEGIN{}{if ($0~/ /)print $1"="$3;}' ${opts[$i]})
+		fs=$(echo $fs | sed 's/p_s_corr/pc/g')
+		fs=$(echo $fs | tr " " "\n" | sort | tr "\n" "_" | sed 's/_$//g')
+		file_specs[$i]=$fs
+done
+
+
+for i in ${file_specs[@]}
+do
+		tmp=`sed -n '2 p' $eps_file_start$i | cut -d\  -f1`
+		if test -z "`awk 'BEGIN{if ('$t1'<'$tmp') print \"oo\"}'`"
+		then
+				t1=$tmp
+		fi
+		tmp=`tail -1 $eps_file_start$i | cut -d\  -f1`
+		if test -z "`awk 'BEGIN{if ('$t2'>'$tmp') print \"oo\"}'`"
+		then
+				t2=$tmp
+		fi
+done
+
+vt1=`awk 'BEGIN{ print 0<'$eps_v_t1' ? '$eps_v_t1' : '$t1'}'`
+
+
+for k in 2 6 10
+do
+	min[$k]=1e+10
+	max[$k]=-1e+10
+done
+
+j=1
+t2=`awk 'BEGIN{print('$t1'+10);}'`
+
+for i in ${file_specs[@]}
+do
+	for k in 2 6 10
+	do
+		t=`awk 'BEGIN{min='${min[$k]}';max='${max[$k]}'}{\
+			if (min>\$'$k'){min=\$'$k';}\
+			if (min>\$'$(expr $k + 1)'){min=\$'$(expr $k + 1)';}\
+			if (min>\$'$(expr $k + 2)'){min=\$'$(expr $k + 2)';}\
+			if (min>\$'$(expr $k + 3)'){min=\$'$(expr $k + 3)';}\
+			if (max<\$'$k'){max=\$'$k';}\
+			if (max<\$'$(expr $k + 1)'){max=\$'$(expr $k + 1)';}\
+			if (max<\$'$(expr $k + 2)'){max=\$'$(expr $k + 2)';}\
+			if (max<\$'$(expr $k + 3)'){max=\$'$(expr $k + 3)';}\
+		}END{print min, max;}' < $eps_file_start$i`
+		min[$k]=`echo $t | cut -d\  -f1`
+		max[$k]=`echo $t | cut -d\  -f2`
+	done
+	
+done
+nemin=`awk 'BEGIN{if ('${min[2]}'<'${min[10]}'){print '${min[2]}';}else{print '${min[10]}';}}'`
+nemax=`awk 'BEGIN{if ('${max[2]}'<'${max[10]}'){print '${max[10]}';}else{print '${max[2]}';}}'`
+
+#nemin=-0.25
+#nemax=0.05
+plotr=""
+plotv="plot "
+plote="plot "
+i=1
+for f in ${file_specs[@]}
+do
+		title=`echo $f | sed 's/_/\ /g' | sed 's/\ '$same'//g'`
+		title=`echo $title | sed 's/_/\ /g' | sed 's/'$same'\ //g'`
+		for k in 2 3 4 5
+		do
+				plotr+="'$eps_file_start$f' u 1:$k w l lt $i lc $(expr $k - 1) lw 2 t '$title', "; 
+				plotv+="'$eps_file_start$f' u 1:$(expr $k + 4) w l lt $i lc $(expr $k - 1) lw 2 t '$title', ";
+				plote+="'$eps_file_start$f' u 1:$(expr $k + 8) w l lt $i lc $(expr $k - 1) lw 2 t '$title', ";
+				title=""
+		done
+		i=$(expr $i + 1)
+done
+plotr=$(echo ${plotr%??})
+plotv=$(echo ${plotv%??})
+plote=$(echo ${plote%??})
+
+
+lbx=`awk 'BEGIN{print ('$t1'-('$t2'-'$t1')*0.09)}'`
+lbxv=`awk 'BEGIN{print ('$vt1'-('$t2'-'$vt1')*0.09)}'`
+lby=`awk 'BEGIN{print (('$nemin' + '$nemax')/2)}'`
+lbyv=`awk 'BEGIN{print (('${min[6]}' + '${max[6]}')/2)}'`
+cy=0
+cyv=0
+epslabel=""
+epslabelv=""
+
+icy=`awk 'BEGIN{print ('$nemax' - '$nemin')/20;}'`
+icyv=`awk 'BEGIN{print ('${max[6]}' - '${min[6]}')/20;}'`
+for i in 1 2 3 4
+do
+		epslabel+="set label $i '{/Times-Bold {/Symbol e}_{$i}}' at $lbx, $(awk 'BEGIN{print ('$lby'-'$cy')}') center tc lt $i; "
+		epslabelv+="set label $i '{/Times-Bold {/Symbol e}_{$i}}' at $lbxv, $(awk 'BEGIN{print ('$lbyv'-'$cyv')}') center tc lt $i; "
+		cy=$(awk 'BEGIN{print ('$cy'+'$icy');}')		
+		cyv=$(awk 'BEGIN{print ('$cyv'+'$icyv');}')
+done
+
+nemin=`awk 'BEGIN{print ('$nemin'-'$icy'*2);}'`
+nemax=`awk 'BEGIN{print ('$nemax'+'$icy'*2);}'`
+vmin=`awk 'BEGIN{print ('${min[6]}'-'$icyv'*2);}'`
+vmax=`awk 'BEGIN{print ('${max[6]}'+'$icyv'*2);}'`
+vmin=-0.8
+vmax=0.04
+gnuplot <<EOF
+set term pngcairo dashed enhanced size 800,600
+set xlabel "{/Times-Bold Time [fm{\\267}c@^{-1}   ]}"
+$epslabel
+set key bottom right
+set xrange [$t1:$t2]
+set yrange [$nemin:$nemax]
+set out "n_eps.png"
+plot $plotr
+set out "p_eps.png"
+$plote
+set out "v_eps.png"
+unset label
+$epslabelv
+set xrange[30:$t2]
+set yrange [$vmin:$vmax]
+$plotv
+
+EOF
+
+cd $DEFDIR
+}
+
+
+function pint(){
+cd $DATDIR
+t1=`sed -n '2 p' $eps_file | cut -d\  -f1`
+t2=`tail -1 $eps_file | cut -d\  -f1`;
+
+
+gnuplot <<EOF
+set term pngcairo dashed enhanced size 800,600
+set xlabel "{/Times-Bold Time [fm{\\267}c@^{-1}   ]}"
+set format y "%.0s*10^{%T}"
+set out "q1.png"
+plot "$pint_file" u 1:2 w l lw 2 t "M [MeV/c^2]"
+set out "q2q3.png"
+plot "$pint_file" u 1:3 w l lw 2 t "Px [MeV/c]", \
+     "$pint_file" u 1:4 w l lw 2 t "Py [MeV/c]"
+set out "q4.png"
+plot "$pint_file" u 1:5 w l lw 2 t "E[MeV]"
+set out "lost_q1.png"
+plot "$pint_file" u 1:6 w l lw 2 t "M [MeV/c^2]"
+set out "lost_q2q3.png"
+plot "$pint_file" u 1:7 w l lw 2 t "Px [MeV/c]", \
+     "$pint_file" u 1:8 w l lw 2 t "Py [MeV/c]"
+set out "lost_q4.png"
+plot "$pint_file" u 1:9 w l lw 2 t "E[MeV]"
+EOF
+cd $DEFDIR
+}
+
+
+
+function pvnN(){
+cd $DATDIR
+
+echo ${opts[@]}
+file_specs=();
+for((i=1;i<=${#opts[@]};i++))
+do
+		fs=$(awk 'BEGIN{}{if ($0~/ /)print $1"="$3;}' ${opts[$i]})
+		fs=$(echo $fs | sed 's/p_s_corr/pc/g')
+		fs=$(echo $fs | tr " " "\n" | sort | tr "\n" "_" | sed 's/_$//g')
+		file_specs[$i]=$fs
+done
+
+vnmin=1e+10
+vnmax=-1e+10
+dNfimin=1e+10
+dNfimax=-1e+10
+Nfimin=$dNfimin
+Nfimax=$dNfimax
+j=1
+
+for i in ${file_specs[@]}
+do
+	t=`awk 'BEGIN{min='$vnmin';max='$vnmax'}{\
+		if (min>\$2){min=\$2;}\
+		if (min>\$3){min=\$3;}\
+		if (min>\$4){min=\$4;}\
+		if (min>\$5){min=\$5;}\
+		if (max<\$2){max=\$2;}\
+		if (max<\$3){max=\$3;}\
+		if (max<\$4){max=\$4;}\
+		if (max<\$5){max=\$5;}\
+		}END{print min, max;}' < $vn_file_start$i`
+	vnmin=`echo $t | cut -d\  -f1`
+	vnmax=`echo $t | cut -d\  -f2`
+	t=`awk 'BEGIN{min='$dNfimin';max='$dNfimax'}{\
+		if (min>\$2){min=\$2;}\
+		if (max<\$2){max=\$2;}\
+		}END{print min, max;}' < $Nfi_file_start$i`
+    Nfimaxs[$j]=`echo $t | cut -d\  -f2`
+    Nfimax=`awk 'BEGIN{if ('$Nfimax'<'${Nfimaxs[$j]}'){print '${Nfimaxs[$j]}';}else {print '$Nfimax'}}'`
+    j=$(expr $j + 1)
+done
+
+plotvn="plot "
+plotNfi="plot "
+plotNpt="plot "
+i=1
+
+for f in ${file_specs[@]}
+do
+		title=`echo $f | sed 's/_/\ /g' | sed 's/\ '$same'//g'`
+		title=`echo $title | sed 's/_/\ /g' | sed 's/'$same'\ //g'`
+		plotvn+="x+1e+20 w l lt $i lc 0  t '$title', "
+		for k in 2 3 4 5
+		do
+			plotvn+="'$vn_file_start$f' u 1:$k w l lt $i lc $(expr $k - 1) lw 2 t '', "; 
+		done
+        	corr=$(awk 'BEGIN{print ('$Nfimax'/'${Nfimaxs[$i]}');}')
+		plotNfi+="'$Nfi_file_start$f' u 1:(\$2*$corr) w l lt $i lw 2 t '$title; corr=$corr', ";
+		plotNpt+="'$Npt_file_start$f' u 1:2 w l lt $i lw 2 t '$title', "
+		title=""
+		i=$(expr $i + 1)
+done
+plotvn=$(echo ${plotvn%??})
+plotNfi=$(echo ${plotNfi%??})
+plotNpt=$(echo ${plotNpt%??})
+
+lbx=`awk 'BEGIN{if ('$pt1'==0){print -'$pt2'/15}else{print ('$pt1'*0.967)}}'`
+lby=`awk 'BEGIN{print (('$vnmin' + '$vnmax')/2)}'`
+cy=0
+label=""
+icy=`awk 'BEGIN{print ('$vnmax' - '$vnmin')/20;}'`
+
+for i in 1 2 3 4
+do
+		label+="set label $i '{/Times-Bold v_$i}' at $lbx, $(awk 'BEGIN{print ('$lby'-'$cy')}') center tc lt $i; "
+		cy=$(awk 'BEGIN{print ('$cy'+'$icy');}')
+done
+
+
+vnmin=`awk 'BEGIN{print ('$vnmin'-'$icy'*2)}'`
+vnmax=`awk 'BEGIN{print ('$vnmax'+'$icy'*2)}'`
+gnuplot <<EOF
+		set term pngcairo dashed enhanced size 800,600
+		set xlabel "{/Times-Bold p@_{t}  [MeV]}"
+	
+		set out "vn.png"
+		set xrange [$pt1:$pt2]
+		set yrange [$vnmin:$vnmax]
+		set key bottom left
+		$label	
+		$plotvn
+		
+		set out "Nfi.png"
+		unset label
+		set key top right
+		set xlabel "{/Times-Bold {/Symbol \146}}"
+		set ylabel "{/Times-Bold N({/Symbol \146})}"
+		set xrange [$fi1:$fi2]
+		set yrange [*:*]
+		set format y "%.0s*10^{%T}"
+		$plotNfi
+
+EOF
+
+gnuplot <<EOF
+
+	set term pngcairo dashed enhanced size 800,600
+
+	set out "Npt.png"	
+	
+	set xlabel "{/Times-Bold p@_{t} [MeV]}"
+	set ylabel "{/Times-Bold N(p@_{t})}"
+
+	set logscale y
+
+	$plotNpt
+EOF
+cd $DEFDIR
+}
+
+
+function plotT(){
+cd $DATDIR
+
+t1=`head -1 $time_file | cut -d\  -f1`
+t2=`tail -1 $time_file | cut -d\  -f1`
+
+awk < $dat_file 'BEGIN{i=1}{\
+if ($2==0){\
+k=1;\
+while((getline tmp < "'`echo $time_file`'")>0 && k<i){k++;}\
+close("'`echo $time_file`'");\
+split(tmp, arr, " ");
+print $1, arr[1], $6/$3;\
+}\
+if ($1==""  && before==""){i++;print "";}\
+before=$1;\
+}END{}' > tmpT
+
+gnuplot <<EOF
+	set term pngcairo enhanced size 800,600
+	set out "T.png"
+
+	unset key
+	unset surface
+	set view map
+	set pm3d
+	set size ratio 1
+
+	set xrange [$x1:$x2]
+	set yrange [$t1:$t2]	
+
+	set xlabel "x [fm]"
+	set ylabel "t [fm/c]"
+	set cblabel "T [GeV]"
+
+	splot "tmpT" u 1:2:(\$3/1000)
+
+EOF
+
+cd $DEFDIR
+}
+
+
+
+if [ "$plot_mode" = "error" ]
+then
+		error
+elif [ "$plot_mode" = "slice" ]
+then
+		slice
+elif [ "$plot_mode" = "plot2d" ]
+then
+		plot2D
+elif [ "$plot_mode" = "error2d" ] 
+then
+		nadiff
+elif [ "$plot_mode" = "eps" ]
+then
+		eps
+elif [ "$plot_mode" = "vnN" ]
+then	
+		pvnN
+elif [ "$plot_mode" = "pint" ]
+then
+	pint
+elif [ "$plot_mode" = "plotT" ]
+then
+	plotT
+fi
